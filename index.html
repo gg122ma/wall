@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="assets/book-icon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#faf7f2" />
+  <meta name="description" content="Echo Wall is a student knowledge and campus memory platform for Malaysian matriculation colleges." />
+  <title>留声墙 Echo Wall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Edu+NSW+ACT+Cursive:wght@400..700&family=Inter:wght@300;400;500;600;700;800&family=Satisfy&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style-core.css" />
+  <link rel="stylesheet" href="style-wall.css" />
+  <link rel="stylesheet" href="style-admin.css" />
+</head>
+<body>
+  <a class="skip-link" href="#app">Skip to content</a>
+
+  <nav class="navbar" aria-label="Primary navigation">
+    <a href="#/" class="navbar-brand" aria-label="Echo Wall home">
+      <span class="navbar-icon navbar-logo-image"><img src="assets/book-icon.png" alt="" /></span>
+      <span>Echo Wall</span>
+    </a>
+    <div class="navbar-actions navbar-actions-expanded">
+      <a href="map.html" class="btn btn-outline btn-sm btn-round" data-i18n="nav.map">Echo Map KMK</a>
+      <label class="nav-select-wrap" aria-label="Language"><span>🌐</span><select id="language-select" class="nav-select" onchange="I18n.setLanguage(event.target.value)"><option value="en">EN</option><option value="ms">BM</option><option value="zh">中文</option></select></label>
+      <label class="nav-select-wrap" aria-label="Theme"><span>◐</span><select id="theme-select" class="nav-select" onchange="ThemeService.setTheme(event.target.value)"><option value="system">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <div id="user-nav-actions" class="user-nav-actions"></div>
+    </div>
+  </nav>
+
+  <main id="app" tabindex="-1"></main>
+
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)" role="dialog" aria-modal="true" aria-label="Note details">
+    <div class="modal-card" id="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeModal()" aria-label="Close note details">✕</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <div id="drawer-overlay" class="drawer-overlay hidden" onclick="closeDrawer()" role="dialog" aria-modal="true" aria-label="Leave a note">
+    <div class="drawer" onclick="event.stopPropagation()">
+      <div class="drawer-header">
+        <div>
+          <span class="drawer-kicker">Share with the next batch</span>
+          <h3 class="drawer-title">Leave a Note</h3>
+        </div>
+        <button class="drawer-close" onclick="closeDrawer()" aria-label="Close note form">✕</button>
+      </div>
+      <form id="note-form" onsubmit="handleFormSubmit(event)">
+        <div class="form-group">
+          <label class="form-label" for="form-content" data-i18n="form.note">Your Note</label>
+          <textarea id="form-content" class="form-textarea" placeholder="Share your experience, advice, or encouragement here..." maxlength="500" required></textarea>
+          <div class="form-hint form-counter" id="char-count">0 / 500</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="form-image"><span data-i18n="form.photo">Photo</span> <span class="form-optional" data-i18n="form.optional">optional</span></label>
+          <label class="photo-upload-box" for="form-image">
+            <span class="photo-upload-icon">📷</span>
+            <span><strong>Add one photo</strong><small>JPG, PNG or WebP · max 8 MB</small></span>
+          </label>
+          <input type="file" id="form-image" class="form-file visually-hidden" accept="image/jpeg,image/png,image/webp" onchange="handleImageSelection(event)" />
+          <p class="form-hint">The browser compresses the photo before storage. This adapter can later be replaced by Cloudinary upload.</p>
+          <div id="image-status" class="form-hint" role="status" aria-live="polite"></div>
+          <div id="image-preview" class="image-preview hidden">
+            <img id="image-preview-img" alt="Selected photo preview" />
+            <button type="button" class="image-remove-btn" onclick="removeSelectedImage()" aria-label="Remove selected photo">✕</button>
+          </div>
+          <div class="photo-crop-controls">
+            <label class="form-label" for="form-crop-scale"><span data-i18n="form.cropScale">Photo crop scale</span> <b id="crop-scale-value">100%</b></label>
+            <input id="form-crop-scale" type="range" min="1" max="1.8" step="0.05" value="1" oninput="updateCropScale(event)" />
+            <label class="form-label" for="form-image-fit" data-i18n="form.cropFit">Photo fit</label>
+            <select id="form-image-fit" class="form-select" onchange="updateImageFit(event)"><option value="cover" data-i18n="form.fitCover">Crop to fill</option><option value="contain" data-i18n="form.fitContain">Show full photo</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="form-category" data-i18n="form.category">Category</label>
+            <select id="form-category" class="form-select">
+              <option value="academic" data-i18n="form.categoryAcademic">📚 Academic Advice</option>
+              <option value="koko" data-i18n="form.categoryKoko">🎖️ Co-curricular Activity</option>
+              <option value="campus_life" data-i18n="form.categoryCampus">🏫 Campus Life</option>
+              <option value="emotional" data-i18n="form.categoryEmotional">💛 Emotional Support</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-shape" data-i18n="form.shape">Shape</label>
+            <select id="form-shape" class="form-select">
+              <option value="rounded" data-i18n="form.shapeRounded">▢ Rounded</option>
+              <option value="square" data-i18n="form.shapeSquare">⬜ Square</option>
+              <option value="rect" data-i18n="form.shapeRect">▬ Rectangle</option>
+              <option value="circle" data-i18n="form.shapeCircle">⬤ Circle</option>
+              <option value="envelope" data-i18n="form.shapeEnvelope">✉ Envelope</option>
+              <option value="torn" data-i18n="form.shapeTorn">〰 Torn Edge</option>
+              <option value="speech" data-i18n="form.shapeSpeech">💬 Speech Bubble</option>
+              <option value="polaroid" data-i18n="form.shapePolaroid">▣ Polaroid</option>
+              <option value="ticket" data-i18n="form.shapeTicket">🎟 Ticket</option>
+              <option value="hexagon" data-i18n="form.shapeHexagon">⬡ Hexagon</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group form-toggle-group">
+          <div>
+            <label class="form-label" for="form-anonymous" data-i18n="form.anonymous">Post Anonymously</label>
+            <p class="form-hint">Hide your nickname from public notes.</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="form-anonymous" checked onchange="toggleNickname()" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="form-group" id="nickname-group" style="display:none">
+          <label class="form-label" for="form-nickname" data-i18n="form.nickname">Nickname</label>
+          <input type="text" id="form-nickname" class="form-input" placeholder="E.g. Senior CS '21" maxlength="50" />
+        </div>
+        <div class="form-group placement-group">
+          <div class="placement-heading"><label class="form-label" data-i18n="form.position">Choose note position</label><span id="placement-value">18%, 18%</span></div>
+          <button id="note-placement-board" class="note-placement-board" type="button" onclick="handlePlacementSelection(event)" aria-label="Choose note position"><span id="placement-marker" class="placement-marker">📌</span></button>
+          <p class="form-hint" data-i18n="form.positionHint">Click the board to place your note.</p>
+        </div>
+        <button type="submit" id="note-submit" class="btn btn-primary btn-full btn-lg" data-i18n="form.submit">📌 Pin to Wall</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="config/app-config.js"></script>
+  <script src="i18n/locales/en.js"></script>
+  <script src="i18n/locales/ms.js"></script>
+  <script src="i18n/locales/zh.js"></script>
+  <script src="i18n/index.js"></script>
+  <script src="services/theme-service.js"></script>
+  <script src="data/campus-buildings.js"></script>
+  <script src="services/auth-service.js"></script>
+  <script src="services/translation-service.js"></script>
+  <script src="services/cloudinary-adapter.js"></script>
+  <script src="app-data.js"></script>
+  <script src="app-admin.js"></script>
+  <script src="app-place.js"></script>
+  <script src="app-router.js"></script>
+  <script src="app-wall.js"></script>
+  <script src="services/auth-ui.js"></script>
+  <script src="services/bisheng-adapter.js"></script>
+  <script>
+    document.getElementById("language-select").value = I18n.getLanguage();
+    document.getElementById("theme-select").value = ThemeService.getPreference();
+  </script>
+</body>
+</html>
