@@ -21,7 +21,11 @@ function getRoute() {
   }
   return { page: "home" };
 }
+
+let pendingRouteScrollReset = false;
+
 function navigate(path) {
+  pendingRouteScrollReset = true;
   if (location.hash === path) {
     render();
     return;
@@ -31,6 +35,7 @@ function navigate(path) {
 
 function setRouteDocumentState(page) {
   document.body.dataset.page = page;
+  document.body.classList.toggle('wall-route-active', page === 'wall' || page === 'place-wall');
   const titles = {
     home: "留声墙 Echo Wall",
     org: "Choose Your Space — Echo Wall",
@@ -80,6 +85,14 @@ function render() {
     app.classList.remove("route-changing");
     app.classList.add("route-ready");
     initializeRenderedPage(route.page);
+    if (pendingRouteScrollReset) {
+      window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: "auto",
+      });
+      pendingRouteScrollReset = false;
+    }
   });
 }
 
@@ -263,7 +276,7 @@ function renderHome(container) {
 
       <footer class="container site-footer">
         <div class="footer-brand"><img src="assets/book-icon.png" alt="" /><div><strong>Echo Wall</strong><span>Experience worth passing on.</span></div></div>
-        <div class="footer-actions"><span>© 2026 Matriks EchoWall</span><a href="#/admin">🔒 Admin</a></div>
+        <div class="footer-actions"><span>© 2026 Matriks EchoWall</span></div>
       </footer>
     </div>`;
 }
@@ -298,7 +311,6 @@ function renderOrgDetails(container, orgId) {
         <div><p class="eyebrow">${I18n.t("org.workspace")}</p><h1>${escapeHtml(org.name)}</h1><div class="org-header-meta"><span class="org-meta-tag">${escapeHtml(org.type)}</span><span>${noteCount(org.id)} visible notes</span></div></div>
       </header>
       <section class="selection-shell">
-        <div class="selection-progress"><span class="active">1. Community</span><i></i><span class="active">2. Context</span><i></i><span>3. Wall</span></div>
         <div class="selection-grid">
           <div class="selection-col"><div class="selection-heading"><span>01</span><div><h2>${I18n.t("org.selectBatch")}</h2><p>${I18n.t("org.selectBatchDesc")}</p></div></div><div class="selection-list">${batchItems}</div></div>
           <div class="selection-col"><div class="selection-heading"><span>02</span><div><h2>${I18n.t("org.selectMajor")}</h2><p>${I18n.t("org.selectMajorDesc")}</p></div></div><div class="selection-list">${majorItems}</div></div>

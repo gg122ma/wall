@@ -1,6 +1,9 @@
 const MAX_IMAGE_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_STORED_IMAGE_BYTES = 450 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAP_RETURN_STORAGE_KEY = "echowall_map_return_v1";
+const MAP_RETURN_VERSION = 1;
+const MAP_RETURN_TTL_MS = 30 * 60 * 1000;
 
 let pendingImageDataUrl = "";
 let pendingImageName = "";
@@ -166,8 +169,6 @@ function removeSelectedImage() {
 }
 
 
-let selectedPlacementX = 18;
-let selectedPlacementY = 18;
 let selectedPhotoCropScale = 1;
 let selectedImageFit = "cover";
 const noteTranslationState = new Map();
@@ -188,6 +189,84 @@ function renderWall(container, orgId, batchId, majorId) {
   });
 }
 
+function removeInvalidMapReturnSnapshot() {
+  try {
+    sessionStorage.removeItem(MAP_RETURN_STORAGE_KEY);
+  } catch (error) {
+    // Session storage is optional; the existing building profile return remains available.
+  }
+}
+
+function isKnownMapReturnBuildingId(value, { allowEmpty = true } = {}) {
+  if (value === "") return allowEmpty;
+  return typeof value === "string" && Boolean(getCampusBuilding(value));
+}
+
+function readMatchingMapReturnSnapshot(placeId) {
+  let stored;
+  try {
+    stored = sessionStorage.getItem(MAP_RETURN_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
+  if (!stored) return null;
+
+  let snapshot;
+  try {
+    snapshot = JSON.parse(stored);
+  } catch (error) {
+    removeInvalidMapReturnSnapshot();
+    return null;
+  }
+
+  const createdAt = Number(snapshot?.createdAt);
+  const age = Date.now() - createdAt;
+  const validStructure = Boolean(snapshot) &&
+    typeof snapshot === "object" &&
+    !Array.isArray(snapshot) &&
+    snapshot.version === MAP_RETURN_VERSION &&
+    Number.isFinite(createdAt) &&
+    age >= 0 &&
+    age <= MAP_RETURN_TTL_MS &&
+    isKnownMapReturnBuildingId(snapshot.placeId, { allowEmpty:false }) &&
+    isKnownMapReturnBuildingId(snapshot.selectedBuildingId) &&
+    isKnownMapReturnBuildingId(snapshot.selectedFootprintId) &&
+    isKnownMapReturnBuildingId(snapshot.previewedPlaceId) &&
+    Number.isFinite(Number(snapshot.center?.lat)) &&
+    Number(snapshot.center.lat) >= -90 &&
+    Number(snapshot.center.lat) <= 90 &&
+    Number.isFinite(Number(snapshot.center?.lng)) &&
+    Number(snapshot.center.lng) >= -180 &&
+    Number(snapshot.center.lng) <= 180 &&
+    Number.isFinite(Number(snapshot.zoom)) &&
+    ["buildingListScrollTop", "previewBodyScrollTop", "windowScrollY"].every(field => {
+      const value = Number(snapshot[field]);
+      return Number.isFinite(value) && value >= 0;
+    });
+
+  if (!validStructure) {
+    removeInvalidMapReturnSnapshot();
+    return null;
+  }
+  return snapshot.placeId === placeId ? snapshot : null;
+}
+
+function leaveContextWall(backPath, useDocumentNavigation = false, mapReturnPlaceId = "") {
+  if (mapReturnPlaceId) {
+    if (readMatchingMapReturnSnapshot(mapReturnPlaceId)) {
+      location.href = "map.html";
+      return;
+    }
+    navigate(backPath);
+    return;
+  }
+  if (useDocumentNavigation) {
+    location.href = backPath;
+    return;
+  }
+  navigate(backPath);
+}
+
 function renderBuildingWall(container, placeId) {
   const building = getCampusBuilding(placeId);
   if (!building) {
@@ -201,6 +280,7 @@ function renderBuildingWall(container, placeId) {
     kicker: getBuildingZoneName(building),
     icon: building.emoji || "🏢",
     backPath: `#/place/${building.id}`,
+    mapReturnPlaceId:building.id,
   });
 }
 
@@ -214,33 +294,35 @@ function renderContextWall(container, context) {
 
   container.innerHTML = `
     <div class="wall-page page-reveal">
-      <header class="wall-context-bar">
-        <div class="wall-context-main">
-          <button class="wall-back-btn" onclick="navigate('${escapeHtml(context.backPath)}')" aria-label="Leave this wall">←</button>
-          <div class="wall-context-icon">${escapeHtml(context.icon)}</div>
-          <div><p class="wall-context-kicker">${escapeHtml(context.kicker)}</p><h1>${escapeHtml(context.title)}</h1></div>
-        </div>
-        <div class="wall-context-meta"><span><b id="wall-result-count">${visibleCount}</b> notes</span><span class="wall-live-dot"></span><span>${I18n.t("wall.shared")}</span></div>
-      </header>
+      <div class="wall-sticky-stack">
+        <header class="wall-context-bar">
+          <div class="wall-context-main">
+            <button class="wall-back-btn" onclick="leaveContextWall('${escapeHtml(context.backPath)}', ${context.useDocumentNavigation ? "true" : "false"}, '${escapeHtml(context.mapReturnPlaceId || "")}')" aria-label="Leave this wall">←</button>
+            <div class="wall-context-icon">${escapeHtml(context.icon)}</div>
+            <div><p class="wall-context-kicker">${escapeHtml(context.kicker)}</p><h1>${escapeHtml(context.title)}</h1></div>
+          </div>
+          <div class="wall-context-meta"><span><b id="wall-result-count">${visibleCount}</b> notes</span><span class="wall-live-dot"></span><span>${I18n.t("wall.shared")}</span></div>
+        </header>
 
-      <div class="toolbar">
-        <div class="toolbar-scroll" aria-label="Wall controls">
-          <div class="filter-group" aria-label="Category filters">
-            <button class="filter-btn ${wallState.category === "all" ? "active" : ""}" data-category="all" onclick="setCategoryFilter('all')">${I18n.t("wall.all")}</button>
-            <button class="filter-btn ${wallState.category === "academic" ? "active" : ""}" data-category="academic" onclick="setCategoryFilter('academic')">📚 ${I18n.t("wall.academic")}</button>
-            <button class="filter-btn ${wallState.category === "koko" ? "active" : ""}" data-category="koko" onclick="setCategoryFilter('koko')">🎖️ ${I18n.t("wall.activities")}</button>
-            <button class="filter-btn ${wallState.category === "campus_life" ? "active" : ""}" data-category="campus_life" onclick="setCategoryFilter('campus_life')">🏫 ${I18n.t("wall.campusLife")}</button>
-            <button class="filter-btn ${wallState.category === "emotional" ? "active" : ""}" data-category="emotional" onclick="setCategoryFilter('emotional')">💛 ${I18n.t("wall.support")}</button>
+        <div class="toolbar">
+          <div class="toolbar-scroll" aria-label="Wall controls">
+            <div class="filter-group" aria-label="Category filters">
+              <button class="filter-btn ${wallState.category === "all" ? "active" : ""}" data-category="all" onclick="setCategoryFilter('all')">${I18n.t("wall.all")}</button>
+              <button class="filter-btn ${wallState.category === "academic" ? "active" : ""}" data-category="academic" onclick="setCategoryFilter('academic')">📚 ${I18n.t("wall.academic")}</button>
+              <button class="filter-btn ${wallState.category === "koko" ? "active" : ""}" data-category="koko" onclick="setCategoryFilter('koko')">🎖️ ${I18n.t("wall.activities")}</button>
+              <button class="filter-btn ${wallState.category === "campus_life" ? "active" : ""}" data-category="campus_life" onclick="setCategoryFilter('campus_life')">🏫 ${I18n.t("wall.campusLife")}</button>
+              <button class="filter-btn ${wallState.category === "emotional" ? "active" : ""}" data-category="emotional" onclick="setCategoryFilter('emotional')">💛 ${I18n.t("wall.support")}</button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="filter-group compact" aria-label="Sort order">
+              <button class="filter-btn ${wallState.sort === "hot" ? "active" : ""}" data-sort="hot" onclick="setSortOrder('hot')">🔥 ${I18n.t("wall.hot")}</button>
+              <button class="filter-btn ${wallState.sort === "new" ? "active" : ""}" data-sort="new" onclick="setSortOrder('new')">🕒 ${I18n.t("wall.new")}</button>
+            </div>
           </div>
-          <span class="toolbar-divider" aria-hidden="true"></span>
-          <div class="filter-group compact" aria-label="Sort order">
-            <button class="filter-btn ${wallState.sort === "hot" ? "active" : ""}" data-sort="hot" onclick="setSortOrder('hot')">🔥 ${I18n.t("wall.hot")}</button>
-            <button class="filter-btn ${wallState.sort === "new" ? "active" : ""}" data-sort="new" onclick="setSortOrder('new')">🕒 ${I18n.t("wall.new")}</button>
+          <div class="toolbar-actions">
+            <label class="search-box"><span class="search-icon">⌕</span><input type="search" class="search-input" placeholder="${escapeHtml(I18n.t("wall.search"))}" value="${escapeHtml(wallState.search || "")}" oninput="handleSearchInput(event)" aria-label="${escapeHtml(I18n.t("wall.search"))}" /><button type="button" class="search-clear ${wallState.search ? "" : "hidden"}" onclick="clearSearch()" aria-label="Clear search">✕</button></label>
+            <button class="btn btn-primary btn-round wall-compose-btn" onclick="openDrawer()"><span>＋</span> ${I18n.t("wall.leaveNote")}</button>
           </div>
-        </div>
-        <div class="toolbar-actions">
-          <label class="search-box"><span class="search-icon">⌕</span><input type="search" class="search-input" placeholder="${escapeHtml(I18n.t("wall.search"))}" value="${escapeHtml(wallState.search || "")}" oninput="handleSearchInput(event)" aria-label="${escapeHtml(I18n.t("wall.search"))}" /><button type="button" class="search-clear ${wallState.search ? "" : "hidden"}" onclick="clearSearch()" aria-label="Clear search">✕</button></label>
-          <button class="btn btn-primary btn-round wall-compose-btn" onclick="openDrawer()"><span>＋</span> ${I18n.t("wall.leaveNote")}</button>
         </div>
       </div>
 
@@ -270,9 +352,26 @@ function getFilteredNotes() {
     : Number(b.score || 0) - Number(a.score || 0));
 }
 
+function stableWallLayoutHash(value) {
+  let hash = 2166136261;
+  for (const character of String(value || "")) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function getWallLayoutClass() {
+  const layoutKey = wallState.contextType === "building"
+    ? `building:${wallState.placeId}`
+    : `community:${wallState.orgId}:${wallState.batchId}:${wallState.majorId}`;
+  return `wall-layout-${stableWallLayoutHash(layoutKey) % 4}`;
+}
+
 function renderWallNotes() {
   const canvas = document.getElementById("wall-canvas");
   if (!canvas) return;
+  canvas.className = `wall-canvas ${getWallLayoutClass()}`;
   const filtered = getFilteredNotes();
   const resultCount = document.getElementById("wall-result-count");
   if (resultCount) resultCount.textContent = String(filtered.length);
@@ -283,8 +382,7 @@ function renderWallNotes() {
     return;
   }
 
-  const maxY = Math.max(...filtered.map(note => Number(note.positionY || 15)));
-  canvas.style.minHeight = `${Math.max(760, 250 + maxY * 9)}px`;
+  canvas.style.minHeight = "560px";
   canvas.innerHTML = "";
   filtered.forEach((note, index) => canvas.appendChild(buildNoteDOM(note, index)));
 }
@@ -299,21 +397,8 @@ function buildNoteDOM(note, index) {
   element.style.setProperty("--photo-scale", String(Math.max(1, Math.min(1.8, Number(note.imageCropScale || 1)))));
   element.style.setProperty("--photo-fit", note.imageFit === "contain" ? "contain" : "cover");
 
-  const positionX = Math.max(2, Math.min(86, Number(note.positionX || 10)));
-  const positionY = Math.max(4, Math.min(84, Number(note.positionY || 15)));
   const rotation = Number.isFinite(Number(note.rotation)) ? Number(note.rotation) : 0;
-  if (window.innerWidth < 760) {
-    element.style.position = "relative";
-    element.style.left = "auto";
-    element.style.top = "auto";
-    element.style.transform = "none";
-  } else {
-    element.style.left = `${positionX}%`;
-    element.style.top = `${45 + positionY * 8}px`;
-    element.style.transform = `rotate(${Math.max(-6, Math.min(6, rotation))}deg)`;
-  }
-
-  element.style.zIndex = String(index + 1);
+  element.style.setProperty("--note-rotation", `${Math.max(-2.5, Math.min(2.5, rotation))}deg`);
   element.tabIndex = 0;
   element.setAttribute("role", "button");
   element.setAttribute("aria-label", `Open note by ${note.isAnonymous ? "Anonymous" : note.authorNickname || "User"}`);
@@ -421,20 +506,6 @@ function voteNote(id, type) {
   saveNotes(); renderWallNotes(); openModal(id);
 }
 
-function updatePlacementPreview() {
-  const marker = document.getElementById("placement-marker");
-  if (!marker) return;
-  marker.style.left = `${selectedPlacementX}%`;
-  marker.style.top = `${selectedPlacementY}%`;
-  const value = document.getElementById("placement-value");
-  if (value) value.textContent = `${Math.round(selectedPlacementX)}%, ${Math.round(selectedPlacementY)}%`;
-}
-function handlePlacementSelection(event) {
-  const rect = event.currentTarget.getBoundingClientRect();
-  selectedPlacementX = Math.max(2, Math.min(86, ((event.clientX - rect.left) / rect.width) * 100));
-  selectedPlacementY = Math.max(4, Math.min(84, ((event.clientY - rect.top) / rect.height) * 100));
-  updatePlacementPreview();
-}
 function updateCropScale(event) {
   selectedPhotoCropScale = Math.max(1, Math.min(1.8, Number(event.target.value || 1)));
   document.getElementById("crop-scale-value").textContent = `${Math.round(selectedPhotoCropScale * 100)}%`;
@@ -445,8 +516,162 @@ function updateImageFit(event) {
   document.getElementById("image-preview")?.style.setProperty("--photo-fit", selectedImageFit);
 }
 
+let activeNoteSelect = null;
+let noteSelectsInitialized = false;
+
+function getNoteSelectParts(type) {
+  const root = document.querySelector(`[data-note-select="${type}"]`);
+  const trigger = root?.querySelector(".note-select-trigger");
+  const menu = document.getElementById(trigger?.getAttribute("aria-controls") || "");
+  const input = document.getElementById(`form-${type}`);
+  return root && trigger && menu && input ? { root, trigger, menu, input } : null;
+}
+
+function syncNoteSelect(type, value) {
+  const parts = getNoteSelectParts(type);
+  if (!parts) return;
+  const option = parts.menu.querySelector(`[role="option"][data-value="${value}"]`);
+  if (!option) return;
+  parts.input.value = value;
+  parts.menu.querySelectorAll('[role="option"]').forEach(item => item.setAttribute("aria-selected", String(item === option)));
+  const label = parts.trigger.querySelector("[data-note-select-label]");
+  const key = option.dataset.i18nKey || "";
+  if (label && key) {
+    label.dataset.i18n = key;
+    label.textContent = I18n.t(key);
+  }
+  const currentVisual = parts.trigger.querySelector(".category-choice-icon,.shape-swatch,.fit-swatch");
+  const optionVisual = option.querySelector(".category-choice-icon,.shape-swatch,.fit-swatch");
+  if (currentVisual && optionVisual) {
+    currentVisual.className = optionVisual.className;
+    currentVisual.innerHTML = optionVisual.innerHTML;
+  }
+  parts.input.dispatchEvent(new Event("change", { bubbles:true }));
+}
+
+function getNoteSelectEventPath(event) {
+  return typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+}
+
+function eventIsInsideActiveNoteSelect(event) {
+  if (!activeNoteSelect) return false;
+  const path = getNoteSelectEventPath(event);
+  return path.includes(activeNoteSelect.trigger) ||
+    path.includes(activeNoteSelect.menu) ||
+    activeNoteSelect.trigger.contains(event.target) ||
+    activeNoteSelect.menu.contains(event.target);
+}
+
+function getNoteSelectOptionFromEvent(event) {
+  return getNoteSelectEventPath(event).find(node => node instanceof Element && node.matches?.('[role="option"]')) ||
+    (event.target instanceof Element ? event.target.closest('[role="option"]') : null);
+}
+
+function closeNoteSelect(restoreFocus = false) {
+  if (!activeNoteSelect) return;
+  activeNoteSelect.menu.hidden = true;
+  activeNoteSelect.trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus) activeNoteSelect.trigger.focus();
+  activeNoteSelect = null;
+}
+
+function positionNoteSelect(parts) {
+  const rect = parts.trigger.getBoundingClientRect();
+  const margin = 12;
+  const width = Math.min(parts.root.dataset.noteSelect === "shape" ? 440 : Math.max(rect.width, 260), window.innerWidth - margin * 2);
+  parts.menu.style.width = `${width}px`;
+  parts.menu.style.maxHeight = `${Math.max(96, window.innerHeight - margin * 2)}px`;
+  const height = parts.menu.getBoundingClientRect().height;
+  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+  const below = rect.bottom + 8;
+  const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - 8);
+  parts.menu.style.left = `${left}px`;
+  parts.menu.style.top = `${top}px`;
+}
+
+function openNoteSelect(type, focusTarget = "selected") {
+  const parts = getNoteSelectParts(type);
+  if (!parts) return;
+  if (activeNoteSelect?.type === type) {
+    closeNoteSelect();
+    return;
+  }
+  closeNoteSelect();
+  parts.menu.hidden = false;
+  parts.trigger.setAttribute("aria-expanded", "true");
+  activeNoteSelect = { ...parts, type };
+  positionNoteSelect(parts);
+  const options = [...parts.menu.querySelectorAll('[role="option"]')];
+  const target = focusTarget === "first" ? options[0] : focusTarget === "last" ? options.at(-1) : options.find(item => item.getAttribute("aria-selected") === "true");
+  target?.focus();
+}
+
+function handleNoteSelectKeydown(event, type, option) {
+  const parts = getNoteSelectParts(type);
+  if (!parts) return;
+  const options = [...parts.menu.querySelectorAll('[role="option"]')];
+  if (option && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    syncNoteSelect(type, option.dataset.value || "");
+    closeNoteSelect(true);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeNoteSelect(true);
+    return;
+  }
+  const navigation = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+  if (event.key in navigation || event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    if (!activeNoteSelect) {
+      openNoteSelect(type, event.key === "End" || event.key === "ArrowUp" ? "last" : "first");
+      return;
+    }
+    const currentIndex = Math.max(0, options.indexOf(option || document.activeElement));
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (currentIndex + navigation[event.key] + options.length) % options.length;
+    options[nextIndex]?.focus();
+  }
+}
+
+function initializeNoteCustomSelects() {
+  if (noteSelectsInitialized) return;
+  const overlay = document.getElementById("drawer-overlay");
+  if (!overlay) return;
+  document.querySelectorAll("[data-note-select]").forEach(root => {
+    const type = root.dataset.noteSelect;
+    const trigger = root.querySelector(".note-select-trigger");
+    const menu = document.getElementById(trigger?.getAttribute("aria-controls") || "");
+    if (!type || !trigger || !menu) return;
+    overlay.appendChild(menu);
+    trigger.addEventListener("click", () => openNoteSelect(type));
+    trigger.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openNoteSelect(type);
+      } else handleNoteSelectKeydown(event, type, null);
+    });
+    menu.addEventListener("click", event => {
+      event.stopPropagation();
+      const option = getNoteSelectOptionFromEvent(event);
+      if (!option) return;
+      syncNoteSelect(type, option.dataset.value || "");
+      closeNoteSelect(true);
+    });
+    menu.addEventListener("keydown", event => handleNoteSelectKeydown(event, type, getNoteSelectOptionFromEvent(event)));
+  });
+  document.addEventListener("pointerdown", event => {
+    if (activeNoteSelect && !eventIsInsideActiveNoteSelect(event)) closeNoteSelect();
+  }, true);
+  document.addEventListener("keydown", event => { if (event.key === "Escape" && activeNoteSelect) closeNoteSelect(true); });
+  overlay.addEventListener("scroll", event => { if (!event.target.closest?.(".note-select-menu")) closeNoteSelect(); }, true);
+  window.addEventListener("resize", () => closeNoteSelect());
+  noteSelectsInitialized = true;
+}
+
 function openDrawer() {
-  if (!AuthService.isAuthenticated()) {
+  const currentUser = AuthService.getCurrentUser();
+  if (!currentUser) {
     showToast(I18n.t("wall.authRequired"));
     AuthUI.open("login");
     return;
@@ -455,28 +680,20 @@ function openDrawer() {
   const form = document.getElementById("note-form");
   if (!overlay || !form) return;
   overlay.classList.remove("hidden"); document.body.classList.add("overlay-open"); form.reset();
-  selectedPlacementX = 18 + Math.random() * 52; selectedPlacementY = 12 + Math.random() * 48;
+  initializeNoteCustomSelects();
   selectedPhotoCropScale = 1; selectedImageFit = "cover";
+  syncNoteSelect("category", "academic");
+  syncNoteSelect("shape", "rounded");
+  syncNoteSelect("image-fit", "cover");
   const crop = document.getElementById("form-crop-scale"); if (crop) crop.value = "1";
-  const fit = document.getElementById("form-image-fit"); if (fit) fit.value = "cover";
   document.getElementById("crop-scale-value").textContent = "100%";
-  document.getElementById("nickname-group").style.display = "none";
+  const displayName = document.getElementById("form-display-name");
+  if (displayName) displayName.textContent = currentUser.displayName;
   document.getElementById("char-count").textContent = "0 / 500";
-  pendingImageDataUrl = ""; pendingImageName = ""; setImageProcessing(false); setImageStatus(""); updateImagePreview(); updatePlacementPreview();
+  pendingImageDataUrl = ""; pendingImageName = ""; setImageProcessing(false); setImageStatus(""); updateImagePreview();
   requestAnimationFrame(() => document.getElementById("form-content")?.focus());
 }
-function closeDrawer() { document.getElementById("drawer-overlay")?.classList.add("hidden"); document.body.classList.remove("overlay-open"); }
-function toggleNickname() {
-  const group = document.getElementById("nickname-group");
-  const anonymous = document.getElementById("form-anonymous");
-  if (!group || !anonymous) return;
-  group.style.display = anonymous.checked ? "none" : "block";
-  if (!anonymous.checked) {
-    const nickname = document.getElementById("form-nickname");
-    if (nickname && !nickname.value) nickname.value = AuthService.getCurrentUser()?.displayName || "";
-  }
-}
-
+function closeDrawer() { closeNoteSelect(); document.getElementById("drawer-overlay")?.classList.add("hidden"); document.body.classList.remove("overlay-open"); }
 async function handleFormSubmit(event) {
   event.preventDefault();
   const currentUser = AuthService.getCurrentUser();
@@ -486,10 +703,10 @@ async function handleFormSubmit(event) {
   const content = String(currentForm.querySelector("#form-content")?.value || "").trim();
   const category = String(currentForm.querySelector("#form-category")?.value || "academic");
   const shape = String(currentForm.querySelector("#form-shape")?.value || "rounded");
-  const anonymous = Boolean(currentForm.querySelector("#form-anonymous")?.checked);
-  const nickname = String(currentForm.querySelector("#form-nickname")?.value || currentUser.displayName).trim();
+  const anonymous = currentForm.querySelector('input[name="publish-identity"]:checked')?.value !== "named";
+  const nickname = String(currentUser.displayName || "").trim();
   if (!content) { showToast("Write a message before pinning the note."); return; }
-  if (!anonymous && !nickname) { showToast("Add a nickname or post anonymously."); return; }
+  if (!anonymous && !nickname) { showToast("Your account needs a display name before publishing."); return; }
 
   const submitButton = document.getElementById("note-submit");
   if (submitButton) { submitButton.disabled = true; submitButton.textContent = I18n.t("common.loading"); }
@@ -504,8 +721,7 @@ async function handleFormSubmit(event) {
       placeId: wallState.contextType === "building" ? wallState.placeId : "",
       category: Object.prototype.hasOwnProperty.call(CATEGORY_COLORS, category) ? category : "academic",
       isAnonymous: anonymous, authorNickname: anonymous ? null : nickname, authorUserId: currentUser.id,
-      shape: SHAPES.includes(shape) ? shape : "rounded", color: randomColor(category), rotation: Math.floor(Math.random() * 9) - 4,
-      positionX: selectedPlacementX, positionY: selectedPlacementY,
+      shape: SHAPES.includes(shape) ? shape : "rounded", color: randomColor(category), rotation: Math.floor(Math.random() * 5) - 2,
       upvotes: 0, downvotes: 0, score: 0, userVote: null, createdAt: new Date().toISOString(), content,
       imageDataUrl: upload?.mode === "local" ? safeImageDataUrl(upload.dataUrl) : "",
       imageUrl: upload?.mode === "cloudinary" ? upload.url : "",
