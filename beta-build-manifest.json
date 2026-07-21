@@ -1,0 +1,36 @@
+{
+  "type": "echo-wall-beta-static",
+  "sourceFiles": [
+    "index.html",
+    "map.html",
+    "style-core.css",
+    "style-wall.css",
+    "app-data.js",
+    "app-place.js",
+    "app-router.js",
+    "app-wall.js",
+    "echomap.js",
+    "assets/book-icon.png",
+    "config/app-config.js",
+    "data/campus-buildings.js",
+    "i18n/index.js",
+    "i18n/locales/en.js",
+    "i18n/locales/ms.js",
+    "i18n/locales/zh.js",
+    "services/auth-service.js",
+    "services/auth-ui.js",
+    "services/bisheng-adapter.js",
+    "services/cloudinary-adapter.js",
+    "services/preferences-ui.js",
+    "services/theme-service.js",
+    "services/translation-service.js"
+  ],
+  "generatedFiles": [
+    ".nojekyll",
+    "beta-build-manifest.json"
+  ],
+  "excludedRuntimeFeatures": [
+    "admin",
+    "map-notes"
+  ]
+}

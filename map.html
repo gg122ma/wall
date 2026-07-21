@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#faf7f2" />
+  <link rel="icon" type="image/png" href="assets/book-icon.png" />
+  <title>Echo Map KMK — Echo Wall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style-core.css" />
+  <link rel="stylesheet" href="style-wall.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    .map-app { width:min(1500px,100%); margin-inline:auto; min-height:calc(100vh - 68px); padding:22px clamp(14px,3vw,30px) 34px; display:flex; flex-direction:column; gap:18px; }
+    .map-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:22px; }
+    .map-hero h1 { font-size:clamp(2rem,4vw,3.6rem); letter-spacing:-.055em; margin:5px 0 0; }
+    .map-layout { flex:1; min-height:650px; display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:16px; }
+    .map-frame { position:relative; min-height:650px; background:#fff; border:1px solid var(--border); border-radius:22px; overflow:hidden; box-shadow:var(--shadow-lg); }
+    #map { width:100%; height:100%; min-height:650px; }
+    .map-floating-controls { position:absolute; top:14px; left:14px; z-index:600; display:flex; gap:8px; }
+    .map-floating-controls button { appearance:none; border:1px solid var(--border); background:rgba(255,255,255,.92); backdrop-filter:blur(10px); min-height:38px; padding:8px 11px; border-radius:11px; cursor:pointer; font-size:.68rem; font-weight:800; box-shadow:var(--shadow); transition:.18s ease; }
+    .map-floating-controls button:hover,.map-floating-controls button.active { color:var(--primary); border-color:var(--primary-light); transform:translateY(-1px); }
+    .map-side { min-height:0; display:flex; flex-direction:column; background:#fff; border:1px solid var(--border); border-radius:22px; overflow:hidden; box-shadow:var(--shadow); }
+    .map-side-header { padding:19px 18px 15px; border-bottom:1px solid var(--border); }
+    .map-side-header h2 { font-size:1.1rem; margin:5px 0; }
+    .map-side-header p { color:var(--text-muted); font-size:.69rem; line-height:1.5; }
+    .map-guide { min-height:0; flex:1; display:flex; flex-direction:column; }
+    .map-guide[hidden] { display:none; }
+    .map-building-selection { min-height:0; flex:1; display:flex; flex-direction:column; }
+    .map-building-selection[hidden] { display:none; }
+    .building-search { display:block; padding:12px 12px 0; }
+    .building-search span { display:block; margin:0 2px 6px; color:var(--text-muted); font-size:.59rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+    .building-search input { width:100%; min-height:42px; border:1px solid var(--border); border-radius:12px; background:var(--secondary); color:var(--text); padding:9px 12px; font:inherit; font-size:.72rem; outline:none; }
+    .building-search input:focus { border-color:var(--primary-light); background:#fff; box-shadow:0 0 0 3px rgba(193,128,37,.11); }
+    .building-list { min-height:0; flex:1; overflow:auto; padding:10px 12px 12px; display:flex; flex-direction:column; gap:7px; }
+    .building-card { appearance:none; width:100%; border:1px solid var(--border); background:#fff; border-radius:14px; padding:11px 12px; text-align:left; cursor:pointer; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; }
+    .building-card:hover { border-color:var(--primary-light); background:#fffaf0; }
+    .building-card:focus-visible { outline:3px solid rgba(193,128,37,.2); outline-offset:1px; }
+    .building-card.active { border-color:var(--primary); background:#fff7e7; box-shadow:0 7px 18px rgba(128,82,24,.11); }
+    .building-card strong { display:block; color:var(--text); font-size:.72rem; line-height:1.4; overflow-wrap:anywhere; }
+    .building-card small { display:block; margin-top:3px; color:var(--text-muted); font-size:.59rem; line-height:1.35; }
+    .building-selected-mark { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--border); border-radius:50%; color:transparent; font-size:.66rem; font-weight:900; }
+    .building-card.active .building-selected-mark { border-color:var(--primary); background:var(--primary); color:#fff; }
+    .building-empty { margin:6px 12px 14px; padding:14px 12px; border:1px dashed var(--border); border-radius:13px; color:var(--text-muted); font-size:.66rem; text-align:center; }
+    .building-empty[hidden] { display:none; }
+    .place-preview { min-height:0; height:100%; display:flex; flex-direction:column; padding:18px; overflow:hidden; }
+    .place-preview[hidden] { display:none; }
+    .place-preview-back { align-self:flex-start; appearance:none; border:0; background:transparent; color:var(--text-muted); padding:3px 0; cursor:pointer; font-size:.68rem; font-weight:800; }
+    .place-preview-back:hover,.place-preview-back:focus-visible { color:var(--primary); }
+    .place-preview-body { min-height:0; flex:1; overflow-y:auto; overflow-x:hidden; padding:0 4px 12px 0; scrollbar-gutter:stable; }
+    .place-preview-icon { width:52px; height:52px; display:grid; place-items:center; margin:22px 0 15px; border-radius:16px; background:#fff4dc; color:#9b681b; font-size:1.55rem; box-shadow:inset 0 0 0 1px #ecd7ad; }
+    .place-preview h2 { margin:5px 0 3px; font-size:1.45rem; letter-spacing:-.035em; overflow-wrap:anywhere; }
+    .place-preview-alias { margin:0 0 15px; color:var(--text-muted); font-size:.68rem; line-height:1.45; }
+    .place-preview-meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:0 0 14px; }
+    .place-preview-meta div { min-width:0; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--secondary); }
+    .place-preview-meta dt { color:var(--text-muted); font-size:.57rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+    .place-preview-meta dd { margin:4px 0 0; font-size:.69rem; font-weight:800; line-height:1.35; overflow-wrap:anywhere; }
+    .place-preview-description { display:-webkit-box; margin:0; overflow:hidden; color:var(--text-muted); font-size:.74rem; line-height:1.62; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:5; }
+    .place-preview-count { display:flex; align-items:baseline; gap:8px; margin:16px 0; padding:12px; border:1px solid var(--border); border-radius:14px; background:var(--secondary); }
+    .place-preview-count strong { color:var(--primary); font-size:1.65rem; line-height:1; }
+    .place-preview-count span { color:var(--text-muted); font-size:.68rem; font-weight:700; }
+    .place-preview-notes-title { margin:0 0 8px; font-size:.73rem; }
+    .place-preview-notes { display:grid; gap:8px; }
+    .place-preview-note { min-width:0; padding:11px; border:1px solid var(--border); border-radius:13px; background:#fff; }
+    .place-preview-note p { display:-webkit-box; margin:0 0 7px; overflow:hidden; color:var(--text); font-size:.68rem; line-height:1.5; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+    .place-preview-note small { display:block; color:var(--text-muted); font-size:.57rem; line-height:1.4; overflow-wrap:anywhere; }
+    .place-preview-empty { padding:15px 12px; border:1px dashed var(--border); border-radius:13px; color:var(--text-muted); font-size:.66rem; line-height:1.55; text-align:center; }
+    .place-preview-action { width:100%; flex:0 0 auto; margin-top:12px; justify-content:center; box-shadow:0 -10px 24px rgba(255,255,255,.94); }
+    .pustaka-building-footprint { cursor:pointer; outline:none; transition:fill-opacity .16s ease,stroke-opacity .16s ease,stroke-width .16s ease; }
+    .pustaka-building-footprint:focus { filter:drop-shadow(0 0 4px rgba(185,116,24,.42)); }
+    .leaflet-popup-content-wrapper { border-radius:14px; box-shadow:0 16px 40px rgba(44,31,20,.18); }
+    .leaflet-popup-content { margin:15px 16px; }
+    .leaflet-control-zoom a { color:var(--text)!important; }
+    @media(min-width:981px){
+      body.map-page{height:100vh;height:100dvh;overflow:hidden}
+      .map-page .navbar{flex:0 0 68px;min-height:68px}
+      .map-page .map-app{height:calc(100vh - 68px);height:calc(100dvh - 68px);min-height:0;overflow:hidden}
+      .map-page .map-layout,.map-page .map-frame,.map-page #map,.map-page .map-side{min-height:0}
+      .map-page .map-layout{overflow:hidden}
+      .map-page .map-frame,.map-page #map,.map-page .map-side{height:100%}
+      .map-page .map-guide,.map-page .map-building-selection,.map-page .place-preview{min-height:0;overflow:hidden}
+      .map-page .building-list,.map-page .place-preview-body{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+    }
+    @media(max-width:980px){ .map-layout{grid-template-columns:1fr;}.map-side{max-height:none}.building-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}.place-preview{height:min(680px,78vh)}.map-frame,#map{min-height:560px}.map-hero{align-items:flex-start;flex-direction:column}}
+    @media(max-width:620px){ .map-app{padding-inline:10px}.map-layout{min-height:0}.map-frame,#map{min-height:520px}.building-list{grid-template-columns:1fr}.building-card{min-height:58px}.place-preview{height:min(620px,78vh);padding:15px}.place-preview-meta{grid-template-columns:1fr}.map-floating-controls{top:auto;bottom:12px;left:12px;right:12px}.map-floating-controls button{flex:1}}
+  </style>
+</head>
+<body class="map-page">
+  <nav class="navbar is-scrolled" aria-label="Primary navigation">
+    <a href="index.html" class="navbar-brand"><span class="navbar-icon navbar-logo-image"><img src="assets/book-icon.png" alt="" /></span><span>Echo Wall</span></a>
+    <div class="navbar-actions navbar-actions-expanded">
+      <div class="preference-menu" data-preference-menu="language">
+        <button id="language-menu-trigger" class="preference-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="language-menu"><span aria-hidden="true">🌐</span><span class="preference-current">EN</span><span class="preference-chevron" aria-hidden="true">▾</span></button>
+        <div id="language-menu" class="preference-options" role="menu" aria-labelledby="language-menu-trigger" hidden><button type="button" role="menuitemradio" aria-checked="false" data-value="en"><span>EN</span><span class="preference-check" aria-hidden="true">✓</span></button><button type="button" role="menuitemradio" aria-checked="false" data-value="ms"><span>BM</span><span class="preference-check" aria-hidden="true">✓</span></button><button type="button" role="menuitemradio" aria-checked="false" data-value="zh"><span>中文</span><span class="preference-check" aria-hidden="true">✓</span></button></div>
+      </div>
+      <div class="preference-menu" data-preference-menu="theme">
+        <button id="theme-menu-trigger" class="preference-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="theme-menu"><span aria-hidden="true">◐</span><span class="preference-current">Auto</span><span class="preference-chevron" aria-hidden="true">▾</span></button>
+        <div id="theme-menu" class="preference-options" role="menu" aria-labelledby="theme-menu-trigger" hidden><button type="button" role="menuitemradio" aria-checked="false" data-value="system"><span>Auto</span><span class="preference-check" aria-hidden="true">✓</span></button><button type="button" role="menuitemradio" aria-checked="false" data-value="light"><span>Light</span><span class="preference-check" aria-hidden="true">✓</span></button><button type="button" role="menuitemradio" aria-checked="false" data-value="dark"><span>Dark</span><span class="preference-check" aria-hidden="true">✓</span></button></div>
+      </div>
+      <a href="index.html" class="btn btn-outline btn-sm btn-round">← <span data-i18n="map.back">Back to Wall</span></a>
+    </div>
+  </nav>
+
+  <main class="map-app page-reveal">
+    <header class="map-hero">
+      <div><p class="eyebrow" data-i18n="map.eyebrow">Location-based student voices</p><h1 data-i18n="map.title">Echo Map KMK</h1></div>
+    </header>
+
+    <section class="map-layout">
+      <div class="map-frame">
+        <div id="map" aria-label="Interactive KMK campus map"></div>
+        <div class="map-floating-controls"><button id="fit-campus" type="button" data-i18n="map.fit">Fit campus</button></div>
+      </div>
+      <aside id="map-side" class="map-side">
+        <div id="map-guide" class="map-guide">
+          <div class="map-side-header"><p class="eyebrow" data-i18n="map.guide">Campus guide</p><h2 id="map-side-title" data-i18n="map.buildingListTitle">Focus buildings</h2><p id="map-side-description" data-i18n="map.buildingListDescription">Select one of fourteen focus buildings. This list does not move the map.</p></div>
+          <section id="building-selection" class="map-building-selection" aria-labelledby="map-side-title">
+            <label class="building-search" for="building-search"><span data-i18n="map.buildingSearchLabel">Search by name</span><input id="building-search" type="search" autocomplete="off" data-i18n-placeholder="map.buildingSearchPlaceholder" placeholder="Search buildings" /></label>
+            <div id="building-list" class="building-list"></div>
+            <p id="building-empty" class="building-empty" data-i18n="map.buildingSearchEmpty" hidden>No matching focus buildings.</p>
+          </section>
+        </div>
+        <section id="place-preview" class="place-preview" aria-live="polite" hidden></section>
+      </aside>
+    </section>
+  </main>
+
+  <script src="config/app-config.js"></script>
+  <script src="i18n/locales/en.js"></script>
+  <script src="i18n/locales/ms.js"></script>
+  <script src="i18n/locales/zh.js"></script>
+  <script src="i18n/index.js"></script>
+  <script src="services/theme-service.js"></script>
+  <script src="services/preferences-ui.js"></script>
+  <script src="services/auth-service.js"></script>
+  <script src="services/auth-ui.js"></script>
+  <script src="data/campus-buildings.js"></script>
+  <script src="app-data.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="echomap.js"></script>
+  <script>I18n.apply();</script>
+</body>
+</html>
